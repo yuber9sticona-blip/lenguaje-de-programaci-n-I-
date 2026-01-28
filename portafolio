@@ -17,6 +17,11 @@
     <!-- Typed.js para efecto de escritura -->
     <script src="https://cdn.jsdelivr.net/npm/typed.js@2.0.12"></script>
     
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+    
     <style>
         * {
             margin: 0;
@@ -1033,14 +1038,35 @@
     <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
 
     <script>
-        // Initialize AOS
+        // ==========================================
+        // FIREBASE CONFIGURATION
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyBXxvKZ3bH8nF7vNxPqR9YzJ3wKxLmN0pQ",
+            authDomain: "portafolio-programacion.firebaseapp.com",
+            projectId: "portafolio-programacion",
+            storageBucket: "portafolio-programacion.appspot.com",
+            messagingSenderId: "123456789012",
+            appId: "1:123456789012:web:abcdef1234567890"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const storage = firebase.storage();
+
+        // ==========================================
+        // INITIALIZE AOS
+        // ==========================================
         AOS.init({
             duration: 1000,
             once: true,
             offset: 100
         });
 
-        // Matrix Rain Effect
+        // ==========================================
+        // MATRIX RAIN EFFECT
+        // ==========================================
         const canvas = document.getElementById('matrix-bg');
         const ctx = canvas.getContext('2d');
 
@@ -1084,7 +1110,9 @@
             canvas.height = window.innerHeight;
         });
 
-        // Typed.js initialization
+        // ==========================================
+        // TYPED.JS INITIALIZATION
+        // ==========================================
         var typed = new Typed('#typed', {
             strings: [
                 'Dominando <span class="code-snippet">algoritmos()</span>',
@@ -1098,7 +1126,9 @@
             backDelay: 2000
         });
 
-        // Counter Animation
+        // ==========================================
+        // COUNTER ANIMATION
+        // ==========================================
         const counters = document.querySelectorAll('.stat-number');
         counters.forEach(counter => {
             const target = parseInt(counter.getAttribute('data-count'));
@@ -1116,7 +1146,6 @@
                 }
             };
 
-            // Start animation when element is in viewport
             const observer = new IntersectionObserver((entries) => {
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
@@ -1129,13 +1158,14 @@
             observer.observe(counter);
         });
 
-        // Activities Management
-        let activities = JSON.parse(localStorage.getItem('activities')) || [];
-
-        // File selection handler
+        // ==========================================
+        // ACTIVITIES MANAGEMENT WITH FIREBASE
+        // ==========================================
         const pdfFilesInput = document.getElementById('pdfFiles');
         const selectedFilesDiv = document.getElementById('selectedFiles');
+        const activityForm = document.getElementById('activityForm');
 
+        // File selection handler
         pdfFilesInput.addEventListener('change', function(e) {
             const files = Array.from(e.target.files);
             if (files.length > 0) {
@@ -1147,99 +1177,164 @@
             }
         });
 
-        // Form submission
-        document.getElementById('activityForm').addEventListener('submit', function(e) {
+        // Form submission with Firebase
+        activityForm.addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            const title = document.getElementById('activityTitle').value;
-            const description = document.getElementById('activityDescription').value;
-            const files = Array.from(pdfFilesInput.files);
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalBtnText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Subiendo...';
+            submitBtn.disabled = true;
             
-            const pdfData = files.map(file => ({
-                name: file.name,
-                url: URL.createObjectURL(file)
-            }));
-            
-            const activity = {
-                id: Date.now(),
-                title: title,
-                description: description,
-                pdfs: pdfData,
-                date: new Date().toLocaleDateString('es-ES', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                })
-            };
-            
-            activities.push(activity);
-            localStorage.setItem('activities', JSON.stringify(activities));
-            
-            this.reset();
-            selectedFilesDiv.innerHTML = '<span style="color: var(--text-secondary); font-size: 0.95em;"><i class="fas fa-info-circle"></i> No hay archivos seleccionados</span>';
-            
-            renderActivities();
-            
-            // Scroll to activities
-            document.getElementById('activitiesList').scrollIntoView({ behavior: 'smooth' });
+            try {
+                const title = document.getElementById('activityTitle').value;
+                const description = document.getElementById('activityDescription').value;
+                const files = Array.from(pdfFilesInput.files);
+                
+                // Upload PDFs to Firebase Storage
+                const pdfData = [];
+                for (let file of files) {
+                    const timestamp = Date.now();
+                    const fileName = `${timestamp}_${file.name}`;
+                    const storageRef = storage.ref('pdfs/' + fileName);
+                    
+                    await storageRef.put(file);
+                    const downloadURL = await storageRef.getDownloadURL();
+                    
+                    pdfData.push({
+                        name: file.name,
+                        url: downloadURL
+                    });
+                }
+                
+                // Create activity object
+                const activity = {
+                    title: title,
+                    description: description,
+                    pdfs: pdfData,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    date: new Date().toLocaleDateString('es-ES', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    })
+                };
+                
+                // Add to Firestore
+                await db.collection('activities').add(activity);
+                
+                // Reset form
+                this.reset();
+                selectedFilesDiv.innerHTML = '<span style="color: var(--text-secondary); font-size: 0.95em;"><i class="fas fa-info-circle"></i> No hay archivos seleccionados</span>';
+                
+                submitBtn.innerHTML = '<i class="fas fa-check"></i> ¡Agregado!';
+                setTimeout(() => {
+                    submitBtn.innerHTML = originalBtnText;
+                    submitBtn.disabled = false;
+                }, 2000);
+                
+                // Scroll to activities
+                document.getElementById('activitiesList').scrollIntoView({ behavior: 'smooth' });
+                
+            } catch (error) {
+                console.error('Error al agregar actividad:', error);
+                alert('Error al agregar la actividad. Por favor intenta de nuevo.');
+                submitBtn.innerHTML = originalBtnText;
+                submitBtn.disabled = false;
+            }
         });
 
-        // Render activities
+        // Render activities from Firebase (Real-time updates)
         function renderActivities() {
             const activitiesList = document.getElementById('activitiesList');
             
-            if (activities.length === 0) {
-                activitiesList.innerHTML = `
-                    <div class="empty-state">
-                        <i class="fas fa-folder-open"></i>
-                        <h3>Sin Actividades Registradas</h3>
-                        <p>Comienza agregando tu primera actividad usando el formulario superior</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            activitiesList.innerHTML = activities.map((activity, index) => `
-                <div class="activity-card" data-aos="fade-up" data-aos-delay="${index * 100}">
-                    <div class="activity-header">
-                        <div>
-                            <h3 class="activity-title">
-                                <i class="fas fa-code-branch"></i> ${activity.title}
-                            </h3>
-                            <p class="activity-date">
-                                <i class="far fa-clock"></i> ${activity.date}
-                            </p>
-                        </div>
-                        <button class="delete-btn" onclick="deleteActivity(${activity.id})">
-                            <i class="fas fa-trash-alt"></i> Eliminar
-                        </button>
-                    </div>
-                    <p class="activity-description">${activity.description}</p>
-                    ${activity.pdfs.length > 0 ? `
-                        <div class="pdf-list">
-                            ${activity.pdfs.map(pdf => `
-                                <a href="${pdf.url}" class="pdf-item" target="_blank" download="${pdf.name}">
-                                    <i class="fas fa-file-pdf"></i>
-                                    ${pdf.name}
-                                </a>
-                            `).join('')}
-                        </div>
-                    ` : ''}
-                </div>
-            `).join('');
-
-            // Refresh AOS
-            AOS.refresh();
+            // Listen for real-time updates
+            db.collection('activities')
+                .orderBy('timestamp', 'desc')
+                .onSnapshot((snapshot) => {
+                    if (snapshot.empty) {
+                        activitiesList.innerHTML = `
+                            <div class="empty-state">
+                                <i class="fas fa-folder-open"></i>
+                                <h3>Sin Actividades Registradas</h3>
+                                <p>Comienza agregando tu primera actividad usando el formulario superior</p>
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    let htmlContent = '';
+                    let delay = 0;
+                    
+                    snapshot.forEach((doc) => {
+                        const activity = doc.data();
+                        const activityId = doc.id;
+                        
+                        htmlContent += `
+                            <div class="activity-card" data-aos="fade-up" data-aos-delay="${delay}">
+                                <div class="activity-header">
+                                    <div>
+                                        <h3 class="activity-title">
+                                            <i class="fas fa-code-branch"></i> ${activity.title}
+                                        </h3>
+                                        <p class="activity-date">
+                                            <i class="far fa-clock"></i> ${activity.date}
+                                        </p>
+                                    </div>
+                                    <button class="delete-btn" onclick="deleteActivity('${activityId}')">
+                                        <i class="fas fa-trash-alt"></i> Eliminar
+                                    </button>
+                                </div>
+                                <p class="activity-description">${activity.description}</p>
+                                ${activity.pdfs && activity.pdfs.length > 0 ? `
+                                    <div class="pdf-list">
+                                        ${activity.pdfs.map(pdf => `
+                                            <a href="${pdf.url}" class="pdf-item" target="_blank" rel="noopener noreferrer">
+                                                <i class="fas fa-file-pdf"></i>
+                                                ${pdf.name}
+                                            </a>
+                                        `).join('')}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                        delay += 100;
+                    });
+                    
+                    activitiesList.innerHTML = htmlContent;
+                    AOS.refresh();
+                });
         }
 
-        // Delete activity
-        function deleteActivity(id) {
+        // Delete activity from Firebase
+        async function deleteActivity(activityId) {
             if (confirm('⚠️ ¿Confirmar eliminación de esta actividad?')) {
-                activities = activities.filter(a => a.id !== id);
-                localStorage.setItem('activities', JSON.stringify(activities));
-                renderActivities();
+                try {
+                    // Get activity data to delete PDFs from storage
+                    const activityDoc = await db.collection('activities').doc(activityId).get();
+                    const activity = activityDoc.data();
+                    
+                    // Delete PDFs from Storage
+                    if (activity.pdfs && activity.pdfs.length > 0) {
+                        for (let pdf of activity.pdfs) {
+                            try {
+                                const pdfRef = storage.refFromURL(pdf.url);
+                                await pdfRef.delete();
+                            } catch (error) {
+                                console.error('Error al eliminar PDF:', error);
+                            }
+                        }
+                    }
+                    
+                    // Delete activity from Firestore
+                    await db.collection('activities').doc(activityId).delete();
+                    
+                } catch (error) {
+                    console.error('Error al eliminar actividad:', error);
+                    alert('Error al eliminar la actividad. Por favor intenta de nuevo.');
+                }
             }
         }
 
@@ -1257,7 +1352,7 @@
             });
         });
 
-        // Initial render
+        // Initial render (Firebase handles updates automatically)
         renderActivities();
     </script>
 </body>
